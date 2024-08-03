@@ -1,4 +1,5 @@
 ﻿using AtelierTomato.Markov.Core;
+using AtelierTomato.Markov.Service.Discord;
 using AtelierTomato.Markov.Storage;
 using AtelierTomato.Markov.Storage.Sqlite;
 using Discord.Rest;
@@ -32,13 +33,16 @@ namespace Resentencizer2
 							.AddSingleton<OldSentenceRenderer>()
 							.AddSingleton<SentenceParser>()
 							.AddSingleton<IWordStatisticAccess, SqliteWordStatisticAccess>()
-							.AddSingleton<ISentenceAccess, SqliteSentenceAccess>();
+							.AddSingleton<ISentenceAccess, SqliteSentenceAccess>()
+							.AddSingleton<DiscordSentenceParser>();
 					services.AddOptions<ResentencizerOptions>()
 							.Bind(hostContext.Configuration.GetSection("Resentencizer"));
 					services.AddOptions<SentenceParserOptions>()
 							.Bind(hostContext.Configuration.GetSection("SentenceParser"));
 					services.AddOptions<SqliteAccessOptions>()
 							.Bind(hostContext.Configuration.GetSection("SqliteAccess"));
+					services.AddOptions<DiscordSentenceParserOptions>()
+							.Bind(hostContext.Configuration.GetSection("DiscordSentenceParser"));
 				});
 	}
 }

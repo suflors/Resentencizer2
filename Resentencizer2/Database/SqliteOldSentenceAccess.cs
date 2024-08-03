@@ -35,6 +35,24 @@ LIMIT @batchSize",
 			return result;
 		}
 
+		public async Task<IEnumerable<OldSentence>> ReadOldSentencesByIDs(IEnumerable<long> ids)
+		{
+			await using var connection = new SqliteConnection(options.OldConnectionString);
+			connection.Open();
+
+			var result = await connection.QueryAsync<OldSentence>($@"
+SELECT {nameof(OldSentence.MessageID)}, {nameof(OldSentence.FragmentNumber)}, {nameof(OldSentence.UserID)}, {nameof(OldSentence.ChannelID)}, {nameof(OldSentence.ServerID)}, {nameof(OldSentence.Text)}, {nameof(OldSentence.VersionNumber)}, {nameof(OldSentence.Deactivated)}, {nameof(OldSentence.InWordTable)} FROM Sentence
+WHERE {nameof(OldSentence.MessageID)} in @ids",
+			new
+			{
+				ids
+			});
+
+			connection.Close();
+
+			return result;
+		}
+
 		public async Task WriteSentenceRange(IEnumerable<OldSentence> sentences)
 		{
 			await using var connection = new SqliteConnection(options.OldConnectionString);

@@ -23,10 +23,11 @@ namespace Resentencizer2
 		private readonly SentenceParser sentenceParser;
 		private readonly IWordStatisticAccess wordStatisticAccess;
 		private readonly ISentenceAccess sentenceAccess;
-		private readonly ResentencizerOptions resentencizerOptions;
+		private readonly ResentencizerOptions resentencizerOptions; // stuff after this line we gotta add program.cs don't let me forget
+		private readonly DiscordSentenceParser discordSentenceParser;
 
 		private readonly Regex RemoveEscapement = new Regex(@"\\(.)", RegexOptions.Compiled);
-		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions)
+		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions, DiscordSentenceParser discordSentenceParser)
 		{
 			this.configuration = configuration;
 			this.client = client;
@@ -36,6 +37,7 @@ namespace Resentencizer2
 			this.wordStatisticAccess = wordStatisticAccess;
 			this.sentenceAccess = sentenceAccess;
 			this.resentencizerOptions = resentencizerOptions.Value;
+			this.discordSentenceParser = discordSentenceParser;
 		}
 
 		public async Task StartAsync(CancellationToken cancellationToken)
@@ -56,14 +58,14 @@ namespace Resentencizer2
 		private async Task Looper()
 		{
 			bool finished = false;
+			int currentBatch = 0;
 			while (!finished)
 			{
 				IEnumerable<OldSentence> oldSentences = await oldSentenceAccess.ReadOldSentences();
-				int currentBatch = 0;
 				if (oldSentences.Any())
 				{
-					currentBatch += 1;
-					await Task.WhenAll(Resentencizer2(oldSentences, currentBatch), Task.Delay(TimeSpan.FromMinutes(1)));
+					currentBatch++;
+					await Task.WhenAll(Resentencizer2(oldSentences, currentBatch), Task.Delay(TimeSpan.FromMinutes(3)));
 				} else
 				{
 					finished = true;
@@ -90,9 +92,37 @@ namespace Resentencizer2
 					{
 						Console.WriteLine($"Batch {currentBatch}: Processing for ChannelID {channelGroup.Key} ...");
 						IEnumerable<OldSentence> sentencesInChannel = channelGroup;
-						if (channels.Any(c => c.Id == (ulong)channelGroup.Key))
+						bool channelFound = channels.Any(c => c.Id == (ulong)channelGroup.Key);
+						bool threadFound;
+						IThreadChannel? thread = null;
+						if (!channelFound)
 						{
-							var channel = channels.Where(c => c.Id == (ulong)channelGroup.Key).FirstOrDefault() as IMessageChannel;
+							thread = await guild.GetThreadChannelAsync((ulong)channelGroup.Key);
+							if (thread is not null)
+							{
+								threadFound = true;
+							} else
+							{
+								threadFound = false;
+							}
+						} else
+						{
+							threadFound = false;
+						}
+						if (channelFound || threadFound)
+						{
+							IMessageChannel? channel;
+							if (channelFound)
+							{
+								channel = channels.Where(c => c.Id == (ulong)channelGroup.Key).FirstOrDefault() as IMessageChannel;
+							} else if (threadFound)
+							{
+								channel = thread;
+							} else
+							{
+								throw new InvalidOperationException("This should not be possible.");
+							}
+							var cahannel = channels.Where(c => c.Id == (ulong)channelGroup.Key).FirstOrDefault() as IMessageChannel;
 							Console.WriteLine($"Batch {currentBatch}: Channel with ID {channel!.Id} \"{channel.Name}\" found ...");
 							Console.WriteLine($"Batch {currentBatch}: Attempting to get each individual message from Discord, processing from current database those that are not found ...");
 							IEnumerable<IMessage> foundMessages = [];
@@ -120,7 +150,7 @@ namespace Resentencizer2
 							if (foundMessages.Any())
 							{
 								Console.WriteLine($"Batch {currentBatch}: {foundMessages.Count()} messages queried from Discord, processing ...");
-								await ProcessFromDiscordMessage(foundMessages);
+								await ProcessFromDiscordMessage(foundMessages, guild, channel);
 							} else
 							{
 								Console.WriteLine($"Batch {currentBatch}: No messages could queried from Discord ...");
@@ -147,9 +177,32 @@ namespace Resentencizer2
 			}
 		}
 
-		private async Task ProcessFromDiscordMessage(IEnumerable<IMessage> foundMessages)
+		private async Task ProcessFromDiscordMessage(IEnumerable<IMessage> foundMessages, IGuild guild, IChannel channel)
 		{
-			throw new NotImplementedException();
+			IEnumerable<Sentence> sentences = [];
+			foreach (var message in foundMessages)
+			{
+				if (message is IUserMessage userMessage)
+				{
+					IEnumerable<string> parsedMessage = discordSentenceParser.ParseIntoSentenceTexts(userMessage.Content, userMessage.Tags);
+					if (parsedMessage.Any())
+					{
+						foreach (string parsedText in parsedMessage)
+						{
+							await wordStatisticAccess.WriteWordStatisticsFromString(parsedText);
+						}
+						sentences = sentences.Concat(await DiscordSentenceBuilder.Build(guild, channel, userMessage.Id, userMessage.Author.Id, userMessage.CreatedAt, parsedMessage));
+					}
+				}
+			}
+			await sentenceAccess.WriteSentenceRange(sentences);
+			Console.WriteLine($"\tWrote {sentences.Count()} Sentences parsed from Discord to the database.");
+			IEnumerable<long> messageIDs = foundMessages.Select(m => (long)m.Id);
+			IEnumerable<OldSentence> oldSentences = await oldSentenceAccess.ReadOldSentencesByIDs(messageIDs);
+			Console.WriteLine($"\tRead {oldSentences.Count()} OldSentences from the database to update.");
+			oldSentences = oldSentences.Select(s => new OldSentence(s.MessageID, s.FragmentNumber, s.UserID, s.ChannelID, s.ServerID, s.Text, resentencizerOptions.CurrentVersion, s.Deactivated, s.InWordTable));
+			await oldSentenceAccess.WriteSentenceRange(oldSentences);
+			Console.WriteLine($"\tUpdated version number for {oldSentences.Count()} OldSentences.");
 		}
 
 		public async Task ProcessFromDatabase(IEnumerable<OldSentence> oldSentences, IGuild? guild = null, IChannel? channel = null)
@@ -160,20 +213,15 @@ namespace Resentencizer2
 			{
 				IEnumerable<OldSentence> sentencesInGroup = group;
 				OldSentence firstSentence = sentencesInGroup.First();
-				Console.WriteLine($"\tProcessing {sentencesInGroup.Count()} OldSentences with MessageID {group.Key} from the database ...");
 				IEnumerable<string> renderedTexts = sentencesInGroup.Select(s => RemoveEscapement.Replace(oldSentenceRenderer.Render(s.Text), m => m.Groups[1].Value));
-				Console.WriteLine($"\tRendered {renderedTexts.Count()} OldSentences to plain text ...");
 				IEnumerable<string> reparsedTexts = renderedTexts.SelectMany(sentenceParser.ParseIntoSentenceTexts);
-				Console.WriteLine($"\tReparsed {reparsedTexts.Count()} plain texts to parsed texts ...");
 				DiscordObjectOID messageOID;
 				if (guild is not null && channel is not null)
 				{
 					messageOID = await DiscordObjectOIDBuilder.BuildForMessage(guild, channel, (ulong)firstSentence.MessageID);
-					Console.WriteLine($"\tCreated DiscordObjectOID for Message from passed guild and channel ...");
 				} else
 				{
 					messageOID = DiscordObjectOID.ForMessage("discord.com", (ulong)firstSentence.ServerID, 0, (ulong)firstSentence.ChannelID, 0, (ulong)firstSentence.MessageID);
-					Console.WriteLine($"\tCreated DiscordObjectOID for Message from data in OldSentences ...");
 				}
 				AuthorOID author = new(ServiceType.Discord, "discord.com", firstSentence.UserID.ToString());
 				IEnumerable<Sentence> newSentences = reparsedTexts.Select((text, index) =>
@@ -185,9 +233,8 @@ namespace Resentencizer2
 					)
 				);
 				sentences = sentences.Concat(newSentences);
-				Console.WriteLine($"\tCreated {newSentences.Count()} Sentences and added them to the list, current count: {sentences.Count()}");
 			}
-			Console.WriteLine($"\tCreated {sentences.Count()} total, attempting to write to the new database ...");
+			Console.WriteLine($"\tCreated {sentences.Count()}, attempting to write to the new database ...");
 			foreach (Sentence sentence in sentences)
 			{
 				await wordStatisticAccess.WriteWordStatisticsFromString(sentence.Text);
