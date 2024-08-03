@@ -52,14 +52,14 @@ namespace Resentencizer2
 
 			Console.WriteLine("hello");
 
-			await Looper();
+			await Looper(cancellationToken);
 		}
 
-		private async Task Looper()
+		private async Task Looper(CancellationToken cancelToken)
 		{
 			bool finished = false;
 			int currentBatch = 0;
-			while (!finished)
+			while (!finished && !cancelToken.IsCancellationRequested)
 			{
 				IEnumerable<OldSentence> oldSentences = await oldSentenceAccess.ReadOldSentences();
 				if (oldSentences.Any())
@@ -71,6 +71,7 @@ namespace Resentencizer2
 					finished = true;
 				}
 			}
+			Console.WriteLine($"Finished processing {(currentBatch)} batches of OldSentences.");
 		}
 
 		private async Task Resentencizer2(IEnumerable<OldSentence> oldSentences, int currentBatch)
