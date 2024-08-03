@@ -222,7 +222,7 @@ namespace Resentencizer2
 				DiscordObjectOID messageOID;
 				if (guild is not null && channel is not null)
 				{
-					messageOID = await DiscordObjectOIDBuilder.BuildForMessage(guild, channel, (ulong)firstSentence.MessageID);
+					messageOID = await DiscordObjectOIDBuilder.Build(guild, channel, (ulong)firstSentence.MessageID);
 				} else
 				{
 					messageOID = DiscordObjectOID.ForMessage("discord.com", (ulong)firstSentence.ServerID, 0, (ulong)firstSentence.ChannelID, 0, (ulong)firstSentence.MessageID);
