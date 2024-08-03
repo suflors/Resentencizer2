@@ -14,15 +14,15 @@ namespace Resentencizer2.Database
 			this.options = options.Value;
 		}
 
-		public async Task<IEnumerable<OldSentence>> ReadOldSentence()
+		public async Task<IEnumerable<OldSentence>> ReadOldSentences()
 		{
 			await using var connection = new SqliteConnection(options.OldConnectionString);
 			connection.Open();
 
 			var result = await connection.QueryAsync<OldSentence>($@"
-SELECT * FROM Sentence
-WHERE {nameof(OldSentence.VersionNumber)} < @currentVersion
-GROUP BY {nameof(OldSentence.MessageID)}
+SELECT {nameof(OldSentence.MessageID)}, {nameof(OldSentence.FragmentNumber)}, {nameof(OldSentence.UserID)}, {nameof(OldSentence.ChannelID)}, {nameof(OldSentence.ServerID)}, {nameof(OldSentence.Text)}, {nameof(OldSentence.VersionNumber)}, {nameof(OldSentence.Deactivated)}, {nameof(OldSentence.InWordTable)} FROM Sentence
+WHERE {nameof(OldSentence.VersionNumber)} < @currentVersion AND {nameof(OldSentence.ServerID)} IS 1127358996890796062
+ORDER BY {nameof(OldSentence.ChannelID)}
 LIMIT @batchSize",
 			new
 			{
