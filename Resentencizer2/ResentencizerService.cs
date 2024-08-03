@@ -127,42 +127,53 @@ namespace Resentencizer2
 							Console.WriteLine($"Batch {currentBatch}: Attempting to get each individual message from Discord, processing from current database those that are not found ...");
 							IEnumerable<IMessage> foundMessages = [];
 							IEnumerable<OldSentence> unfoundOldSentences = [];
-							foreach (var oldSentence in sentencesInChannel)
+							var botUser = await guild.GetUserAsync(client.CurrentUser.Id);
+							var permissions = botUser.GetPermissions(channel as IGuildChannel);
+							if (permissions.ViewChannel)
 							{
-								if (!foundMessages.Any(m => m?.Id == (ulong)oldSentence.MessageID) && !unfoundOldSentences.Any(s => s?.MessageID == oldSentence.MessageID))
+								foreach (var oldSentence in sentencesInChannel)
 								{
-									var message = await channel.GetMessageAsync((ulong)oldSentence.MessageID);
-									if (message is not null)
+									if (!foundMessages.Any(m => m?.Id == (ulong)oldSentence.MessageID) && !unfoundOldSentences.Any(s => s?.MessageID == oldSentence.MessageID))
 									{
-										foundMessages = foundMessages.Append(message!);
-									} else
+										var message = await channel.GetMessageAsync((ulong)oldSentence.MessageID);
+										if (message is not null)
+										{
+											foundMessages = foundMessages.Append(message!);
+										} else
+										{
+											unfoundOldSentences = unfoundOldSentences.Append(oldSentence);
+										}
+									} else if (unfoundOldSentences.Any(s => s.MessageID == oldSentence.MessageID))
 									{
 										unfoundOldSentences = unfoundOldSentences.Append(oldSentence);
+									} else
+									{
+										// If the message ID is found in foundMessages, we don't need to re-process. Continue to next.
 									}
-								} else if (unfoundOldSentences.Any(s => s.MessageID == oldSentence.MessageID))
+								}
+								if (foundMessages.Any())
 								{
-									unfoundOldSentences = unfoundOldSentences.Append(oldSentence);
+									Console.WriteLine($"Batch {currentBatch}: {foundMessages.Count()} messages queried from Discord, processing ...");
+									await ProcessFromDiscordMessage(foundMessages, guild, channel);
 								} else
 								{
-									// If the message ID is found in foundMessages, we don't need to re-process. Continue to next.
+									Console.WriteLine($"Batch {currentBatch}: No messages could queried from Discord ...");
 								}
-							}
-							if (foundMessages.Any())
-							{
-								Console.WriteLine($"Batch {currentBatch}: {foundMessages.Count()} messages queried from Discord, processing ...");
-								await ProcessFromDiscordMessage(foundMessages, guild, channel);
+								if (unfoundOldSentences.Any())
+								{
+									Console.WriteLine($"Batch {currentBatch}: {unfoundOldSentences.Count()} sentences unable to be queried, processing from current database Sentences ...");
+									await ProcessFromDatabase(unfoundOldSentences, guild, channel);
+								} else
+								{
+									Console.WriteLine($"Batch {currentBatch}: No messages needed to be processed from current database Sentences ...");
+								}
 							} else
 							{
-								Console.WriteLine($"Batch {currentBatch}: No messages could queried from Discord ...");
+								Console.WriteLine($"Batch {currentBatch}: cannot view channel, processing all messages from channel from current database Sentences ...");
+								sentencesInChannel = await oldSentenceAccess.ReadOldSentencesByChannelID(channelGroup.Key);
+								await ProcessFromDatabase(sentencesInChannel, guild, channel);
 							}
-							if (unfoundOldSentences.Any())
-							{
-								Console.WriteLine($"Batch {currentBatch}: {unfoundOldSentences.Count()} sentences unable to be queried, processing from current database Sentences ...");
-								await ProcessFromDatabase(unfoundOldSentences, guild, channel);
-							} else
-							{
-								Console.WriteLine($"Batch {currentBatch}: No messages needed to be processed from current database Sentences ...");
-							}
+
 						} else
 						{
 							Console.WriteLine($"Batch {currentBatch}: no Channel with ID {channelGroup.Key} found, processing all messages from channel from current database Sentences ...");
