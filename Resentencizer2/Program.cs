@@ -1,4 +1,7 @@
-﻿using Discord.Rest;
+﻿using AtelierTomato.Markov.Core;
+using AtelierTomato.Markov.Storage;
+using AtelierTomato.Markov.Storage.Sqlite;
+using Discord.Rest;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -25,9 +28,17 @@ namespace Resentencizer2
 				{
 					services.AddHostedService<ResentencizerService>()
 							.AddSingleton<DiscordRestClient>()
-							.AddSingleton<SqliteOldSentenceAccess>();
+							.AddSingleton<SqliteOldSentenceAccess>()
+							.AddSingleton<OldSentenceRenderer>()
+							.AddSingleton<SentenceParser>()
+							.AddSingleton<IWordStatisticAccess, SqliteWordStatisticAccess>()
+							.AddSingleton<ISentenceAccess, SqliteSentenceAccess>();
 					services.AddOptions<ResentencizerOptions>()
 							.Bind(hostContext.Configuration.GetSection("Resentencizer"));
+					services.AddOptions<SentenceParserOptions>()
+							.Bind(hostContext.Configuration.GetSection("SentenceParser"));
+					services.AddOptions<SqliteAccessOptions>()
+							.Bind(hostContext.Configuration.GetSection("SqliteAccess"));
 				});
 	}
 }

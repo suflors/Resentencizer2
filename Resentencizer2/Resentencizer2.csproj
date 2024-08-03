@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AtelierTomato.Markov.Service.Discord" Version="1.0.1-discord-oid-builder-extension.1" />
+    <PackageReference Include="AtelierTomato.Markov.Storage.Sqlite" Version="1.0.1-discord-oid-builder-extension.1" />
     <PackageReference Include="Dapper" Version="2.1.35" />
     <PackageReference Include="Discord.Net.Rest" Version="3.15.3" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.7" />
