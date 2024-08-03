@@ -22,7 +22,7 @@ namespace Resentencizer2.Database
 			var result = await connection.QueryAsync<OldSentence>($@"
 SELECT {nameof(OldSentence.MessageID)}, {nameof(OldSentence.FragmentNumber)}, {nameof(OldSentence.UserID)}, {nameof(OldSentence.ChannelID)}, {nameof(OldSentence.ServerID)}, {nameof(OldSentence.Text)}, {nameof(OldSentence.VersionNumber)}, {nameof(OldSentence.Deactivated)}, {nameof(OldSentence.InWordTable)} FROM Sentence
 WHERE {nameof(OldSentence.VersionNumber)} < @currentVersion
-ORDER BY {nameof(OldSentence.ChannelID)}
+ORDER BY {nameof(OldSentence.ServerID)}, {nameof(OldSentence.ChannelID)}, {nameof(OldSentence.MessageID)}
 LIMIT @batchSize",
 			new
 			{
@@ -35,7 +35,7 @@ LIMIT @batchSize",
 			return result;
 		}
 
-		public async Task<IEnumerable<OldSentence>> ReadOldSentencesByIDs(IEnumerable<long> ids)
+		public async Task<IEnumerable<OldSentence>> ReadOldSentencesByMessageIDs(IEnumerable<long> ids)
 		{
 			await using var connection = new SqliteConnection(options.OldConnectionString);
 			connection.Open();
@@ -46,6 +46,44 @@ WHERE {nameof(OldSentence.MessageID)} in @ids",
 			new
 			{
 				ids
+			});
+
+			connection.Close();
+
+			return result;
+		}
+		public async Task<IEnumerable<OldSentence>> ReadOldSentencesByChannelID(long channelID)
+		{
+			await using var connection = new SqliteConnection(options.OldConnectionString);
+			connection.Open();
+
+			var result = await connection.QueryAsync<OldSentence>($@"
+SELECT {nameof(OldSentence.MessageID)}, {nameof(OldSentence.FragmentNumber)}, {nameof(OldSentence.UserID)}, {nameof(OldSentence.ChannelID)}, {nameof(OldSentence.ServerID)}, {nameof(OldSentence.Text)}, {nameof(OldSentence.VersionNumber)}, {nameof(OldSentence.Deactivated)}, {nameof(OldSentence.InWordTable)} FROM Sentence
+WHERE {nameof(OldSentence.ChannelID)} is @channelID AND {nameof(OldSentence.VersionNumber)} < @currentVersion
+LIMIT 30000",
+			new
+			{
+				@channelID,
+				currentVersion = options.CurrentVersion
+			});
+
+			connection.Close();
+
+			return result;
+		}
+		public async Task<IEnumerable<OldSentence>> ReadOldSentencesByServerID(long serverID)
+		{
+			await using var connection = new SqliteConnection(options.OldConnectionString);
+			connection.Open();
+
+			var result = await connection.QueryAsync<OldSentence>($@"
+SELECT {nameof(OldSentence.MessageID)}, {nameof(OldSentence.FragmentNumber)}, {nameof(OldSentence.UserID)}, {nameof(OldSentence.ChannelID)}, {nameof(OldSentence.ServerID)}, {nameof(OldSentence.Text)}, {nameof(OldSentence.VersionNumber)}, {nameof(OldSentence.Deactivated)}, {nameof(OldSentence.InWordTable)} FROM Sentence
+WHERE {nameof(OldSentence.ServerID)} is @serverID AND {nameof(OldSentence.VersionNumber)} < @currentVersion
+LIMIT 30000",
+			new
+			{
+				@serverID,
+				currentVersion = options.CurrentVersion
 			});
 
 			connection.Close();

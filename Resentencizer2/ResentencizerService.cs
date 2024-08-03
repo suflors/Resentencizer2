@@ -65,7 +65,7 @@ namespace Resentencizer2
 				if (oldSentences.Any())
 				{
 					currentBatch++;
-					await Task.WhenAll(Resentencizer2(oldSentences, currentBatch), Task.Delay(TimeSpan.FromMinutes(3)));
+					await Task.WhenAll(Resentencizer2(oldSentences, currentBatch), Task.Delay(TimeSpan.FromMinutes(1)));
 				} else
 				{
 					finished = true;
@@ -165,16 +165,19 @@ namespace Resentencizer2
 							}
 						} else
 						{
-							Console.WriteLine($"Batch {currentBatch}: no Channel with ID {channelGroup.Key} found, processing from current database Sentences ...");
+							Console.WriteLine($"Batch {currentBatch}: no Channel with ID {channelGroup.Key} found, processing all messages from channel from current database Sentences ...");
+							sentencesInChannel = await oldSentenceAccess.ReadOldSentencesByChannelID(channelGroup.Key);
 							await ProcessFromDatabase(sentencesInChannel);
 						}
 					}
 				} else
 				{
-					Console.WriteLine($"Batch {currentBatch}: no Server with ID {guildGroup.Key} found, processing from current database Sentences ...");
+					Console.WriteLine($"Batch {currentBatch}: no Server with ID {guildGroup.Key} found, processing all messages from server from current database Sentences ...");
+					sentencesInGuild = await oldSentenceAccess.ReadOldSentencesByServerID(guildGroup.Key);
 					await ProcessFromDatabase(sentencesInGuild);
 				}
 			}
+			Console.WriteLine($"Batch {currentBatch}: complete!");
 		}
 
 		private async Task ProcessFromDiscordMessage(IEnumerable<IMessage> foundMessages, IGuild guild, IChannel channel)
@@ -198,7 +201,7 @@ namespace Resentencizer2
 			await sentenceAccess.WriteSentenceRange(sentences);
 			Console.WriteLine($"\tWrote {sentences.Count()} Sentences parsed from Discord to the database.");
 			IEnumerable<long> messageIDs = foundMessages.Select(m => (long)m.Id);
-			IEnumerable<OldSentence> oldSentences = await oldSentenceAccess.ReadOldSentencesByIDs(messageIDs);
+			IEnumerable<OldSentence> oldSentences = await oldSentenceAccess.ReadOldSentencesByMessageIDs(messageIDs);
 			Console.WriteLine($"\tRead {oldSentences.Count()} OldSentences from the database to update.");
 			oldSentences = oldSentences.Select(s => new OldSentence(s.MessageID, s.FragmentNumber, s.UserID, s.ChannelID, s.ServerID, s.Text, resentencizerOptions.CurrentVersion, s.Deactivated, s.InWordTable));
 			await oldSentenceAccess.WriteSentenceRange(oldSentences);
@@ -214,7 +217,8 @@ namespace Resentencizer2
 				IEnumerable<OldSentence> sentencesInGroup = group;
 				OldSentence firstSentence = sentencesInGroup.First();
 				IEnumerable<string> renderedTexts = sentencesInGroup.Select(s => RemoveEscapement.Replace(oldSentenceRenderer.Render(s.Text), m => m.Groups[1].Value));
-				IEnumerable<string> reparsedTexts = renderedTexts.SelectMany(sentenceParser.ParseIntoSentenceTexts);
+				IEnumerable<string> reparsedTexts = renderedTexts.SelectMany(discordSentenceParser.ParseIntoSentenceTexts); // need the discord sentence parser because of escapement
+				reparsedTexts = reparsedTexts.SelectMany(sentenceParser.ParseIntoSentenceTexts); // after removing escapement, we need to re-parse it. discord parser is not necessary
 				DiscordObjectOID messageOID;
 				if (guild is not null && channel is not null)
 				{
@@ -234,11 +238,8 @@ namespace Resentencizer2
 				);
 				sentences = sentences.Concat(newSentences);
 			}
-			Console.WriteLine($"\tCreated {sentences.Count()}, attempting to write to the new database ...");
-			foreach (Sentence sentence in sentences)
-			{
-				await wordStatisticAccess.WriteWordStatisticsFromString(sentence.Text);
-			}
+			Console.WriteLine($"\tCreated {sentences.Count()} Sentences, attempting to write to the new database ...");
+			await wordStatisticAccess.WriteWordStatisticsFromString(string.Join(' ', sentences.Select(s => s.Text)));
 			Console.WriteLine($"\tWrote WordStatistics from {sentences.Count()} Sentences to the database.");
 			await sentenceAccess.WriteSentenceRange(sentences);
 			Console.WriteLine($"\tWrote {sentences.Count()} Sentences to the database.");
