@@ -129,8 +129,16 @@ namespace Resentencizer2
 							IEnumerable<IMessage> foundMessages = [];
 							IEnumerable<OldSentence> unfoundOldSentences = [];
 							var botUser = await guild.GetUserAsync(client.CurrentUser.Id);
-							var permissions = botUser.GetPermissions(channel as IGuildChannel);
-							if (permissions.ViewChannel)
+							ChannelPermissions? permissions = null;
+							if (channel is IThreadChannel threadChannel)
+							{
+								permissions = botUser.GetPermissions(await guild.GetChannelAsync(threadChannel.CategoryId!.Value));
+							} else
+							{
+								permissions = botUser.GetPermissions(channel as IGuildChannel);
+							}
+
+							if (permissions.Value.ViewChannel)
 							{
 								foreach (var oldSentence in sentencesInChannel)
 								{
