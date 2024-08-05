@@ -138,7 +138,7 @@ namespace Resentencizer2
 								permissions = botUser.GetPermissions(channel as IGuildChannel);
 							}
 
-							if (permissions.Value.ViewChannel)
+							if (permissions.Value.ViewChannel && permissions.Value.ReadMessageHistory)
 							{
 								foreach (var oldSentence in sentencesInChannel)
 								{
