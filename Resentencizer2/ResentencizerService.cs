@@ -23,7 +23,7 @@ namespace Resentencizer2
 		private readonly SentenceParser sentenceParser;
 		private readonly IWordStatisticAccess wordStatisticAccess;
 		private readonly ISentenceAccess sentenceAccess;
-		private readonly ResentencizerOptions resentencizerOptions; // stuff after this line we gotta add program.cs don't let me forget
+		private readonly ResentencizerOptions resentencizerOptions;
 		private readonly DiscordSentenceParser discordSentenceParser;
 
 		private readonly Regex RemoveEscapement = new Regex(@"\\(.)", RegexOptions.Compiled);
