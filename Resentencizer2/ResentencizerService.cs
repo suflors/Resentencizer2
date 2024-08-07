@@ -52,7 +52,7 @@ namespace Resentencizer2
 
 			Console.WriteLine("hello");
 
-			await Looper(cancellationToken);
+			_ = Looper(cancellationToken);
 		}
 
 		private async Task Looper(CancellationToken cancelToken)
