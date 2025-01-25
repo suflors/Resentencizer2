@@ -1,4 +1,6 @@
 ﻿using AtelierTomato.Markov.Core;
+using AtelierTomato.Markov.Model;
+using AtelierTomato.Markov.Model.ObjectOID.Parser;
 using AtelierTomato.Markov.Service.Discord;
 using AtelierTomato.Markov.Storage;
 using AtelierTomato.Markov.Storage.Sqlite;
@@ -34,7 +36,10 @@ namespace Resentencizer2
 							.AddSingleton<SentenceParser>()
 							.AddSingleton<IWordStatisticAccess, SqliteWordStatisticAccess>()
 							.AddSingleton<ISentenceAccess, SqliteSentenceAccess>()
-							.AddSingleton<DiscordSentenceParser>();
+							.AddSingleton<DiscordSentenceParser>()
+							.AddSingleton<DiscordObjectOIDBuilder>()
+							.AddSingleton<DiscordSentenceBuilder>()
+							.AddSingleton(_ => new MultiParser<IObjectOID>([new BookObjectOIDParser(), new SpecialObjectOIDParser(), new DiscordObjectOIDParser()]));
 					services.AddOptions<ResentencizerOptions>()
 							.Bind(hostContext.Configuration.GetSection("Resentencizer"));
 					services.AddOptions<SentenceParserOptions>()

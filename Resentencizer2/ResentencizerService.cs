@@ -10,6 +10,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Resentencizer2.Database;
 using Resentencizer2.Database.Model;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Resentencizer2
@@ -25,9 +26,11 @@ namespace Resentencizer2
 		private readonly ISentenceAccess sentenceAccess;
 		private readonly ResentencizerOptions resentencizerOptions;
 		private readonly DiscordSentenceParser discordSentenceParser;
+		private readonly DiscordObjectOIDBuilder objectOIDBuilder;
+		private readonly DiscordSentenceBuilder sentenceBuilder;
 
 		private readonly Regex RemoveEscapement = new Regex(@"\\(.)", RegexOptions.Compiled);
-		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions, DiscordSentenceParser discordSentenceParser)
+		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions, DiscordSentenceParser discordSentenceParser, DiscordObjectOIDBuilder objectOIDBuilder, DiscordSentenceBuilder sentenceBuilder)
 		{
 			this.configuration = configuration;
 			this.client = client;
@@ -38,6 +41,8 @@ namespace Resentencizer2
 			this.sentenceAccess = sentenceAccess;
 			this.resentencizerOptions = resentencizerOptions.Value;
 			this.discordSentenceParser = discordSentenceParser;
+			this.objectOIDBuilder = objectOIDBuilder;
+			this.sentenceBuilder = sentenceBuilder;
 		}
 
 		public async Task StartAsync(CancellationToken cancellationToken)
@@ -207,14 +212,14 @@ namespace Resentencizer2
 			{
 				if (message is IUserMessage userMessage)
 				{
-					IEnumerable<string> parsedMessage = discordSentenceParser.ParseIntoSentenceTexts(userMessage.Content, userMessage.Tags);
+					IEnumerable<string> parsedMessage = discordSentenceParser.ParseIntoSentenceTexts(userMessage.Content, userMessage.Tags, userMessage.CreatedAt);
 					if (parsedMessage.Any())
 					{
 						foreach (string parsedText in parsedMessage)
 						{
 							await wordStatisticAccess.WriteWordStatisticsFromString(parsedText);
 						}
-						sentences = sentences.Concat(await DiscordSentenceBuilder.Build(guild, channel, userMessage.Id, userMessage.Author.Id, userMessage.CreatedAt, parsedMessage));
+						sentences = sentences.Concat(await sentenceBuilder.Build(guild, channel, userMessage.Id, userMessage.Author.Id, userMessage.CreatedAt, parsedMessage));
 					}
 				}
 			}
@@ -236,13 +241,15 @@ namespace Resentencizer2
 			{
 				IEnumerable<OldSentence> sentencesInGroup = group;
 				OldSentence firstSentence = sentencesInGroup.First();
-				IEnumerable<string> renderedTexts = sentencesInGroup.Select(s => RemoveEscapement.Replace(oldSentenceRenderer.Render(s.Text), m => m.Groups[1].Value));
-				IEnumerable<string> reparsedTexts = renderedTexts.SelectMany(discordSentenceParser.ParseIntoSentenceTexts); // need the discord sentence parser because of escapement
-				reparsedTexts = reparsedTexts.SelectMany(sentenceParser.ParseIntoSentenceTexts); // after removing escapement, we need to re-parse it. discord parser is not necessary
+				string connectedText = JoinStrings(sentencesInGroup.Select(s => s.Text).ToList()); // connect them because we are going to make the sentences split differently
+				string renderedText = RemoveEscapement.Replace(oldSentenceRenderer.Render(oldSentenceRenderer.Render(connectedText)), m => m.Groups[1].Value); // double cus the old sentence renderer sucks and i'm too lazy to fix it but this should be fine probably
+				IEnumerable<string> reparsedTexts = discordSentenceParser.ParseIntoSentenceTexts(renderedText); // need the discord sentence parser because of escapement
+
+				// reparsedTexts = reparsedTexts.SelectMany(sentenceParser.ParseIntoSentenceTexts); // after removing escapement, we need to re-parse it. discord parser is not necessary // do we really need this? // i don't think we do let's try without it
 				DiscordObjectOID messageOID;
 				if (guild is not null && channel is not null)
 				{
-					messageOID = await DiscordObjectOIDBuilder.Build(guild, channel, (ulong)firstSentence.MessageID);
+					messageOID = (await objectOIDBuilder.Build(guild, channel)).WithMessage((ulong)firstSentence.MessageID);
 				} else
 				{
 					messageOID = DiscordObjectOID.ForMessage("discord.com", (ulong)firstSentence.ServerID, 0, (ulong)firstSentence.ChannelID, 0, (ulong)firstSentence.MessageID);
@@ -279,6 +286,36 @@ namespace Resentencizer2
 		{
 			Console.WriteLine(msg.ToString());
 			return Task.CompletedTask;
+		}
+
+		private static string JoinStrings(List<string> strings)
+		{
+			var sb = new StringBuilder();
+
+			for (int i = 0; i < strings.Count; i++)
+			{
+				string current = strings[i];
+				sb.Append(current.TrimEnd()); // Remove trailing spaces or newlines
+
+				if (i < strings.Count - 1) // If not the last string
+				{
+					char lastChar = current[^1];
+
+					// Check the ending conditions
+					if (lastChar == '?' || lastChar == '!')
+					{
+						sb.Append(' '); // Join with space
+					} else if (lastChar == '.' && (current.Length < 2 || current[^2] != '.')) // Ends with a single '.'
+					{
+						sb.Append(' '); // Join with space
+					} else
+					{
+						sb.AppendLine(); // Join with newline
+					}
+				}
+			}
+
+			return sb.ToString();
 		}
 	}
 }
