@@ -20,17 +20,19 @@ namespace Resentencizer2
 		private readonly IConfiguration configuration;
 		private readonly DiscordRestClient client;
 		private readonly SqliteOldSentenceAccess oldSentenceAccess;
+		private readonly SqliteUserAccess userAccess;
 		private readonly OldSentenceRenderer oldSentenceRenderer;
 		private readonly SentenceParser sentenceParser;
 		private readonly IWordStatisticAccess wordStatisticAccess;
 		private readonly ISentenceAccess sentenceAccess;
+		private readonly IAuthorAccess authorAccess;
 		private readonly ResentencizerOptions resentencizerOptions;
 		private readonly DiscordSentenceParser discordSentenceParser;
 		private readonly DiscordObjectOIDBuilder objectOIDBuilder;
 		private readonly DiscordSentenceBuilder sentenceBuilder;
 
 		private readonly Regex RemoveEscapement = new Regex(@"\\(.)", RegexOptions.Compiled);
-		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions, DiscordSentenceParser discordSentenceParser, DiscordObjectOIDBuilder objectOIDBuilder, DiscordSentenceBuilder sentenceBuilder)
+		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions, DiscordSentenceParser discordSentenceParser, DiscordObjectOIDBuilder objectOIDBuilder, DiscordSentenceBuilder sentenceBuilder, SqliteUserAccess userAccess, IAuthorAccess authorAccess)
 		{
 			this.configuration = configuration;
 			this.client = client;
@@ -43,6 +45,8 @@ namespace Resentencizer2
 			this.discordSentenceParser = discordSentenceParser;
 			this.objectOIDBuilder = objectOIDBuilder;
 			this.sentenceBuilder = sentenceBuilder;
+			this.userAccess = userAccess;
+			this.authorAccess = authorAccess;
 		}
 
 		public async Task StartAsync(CancellationToken cancellationToken)
@@ -57,6 +61,7 @@ namespace Resentencizer2
 
 			Console.WriteLine("hello");
 
+			await ProcessUsers();
 			_ = Looper(cancellationToken);
 		}
 
@@ -233,7 +238,7 @@ namespace Resentencizer2
 			Console.WriteLine($"\tUpdated version number for {oldSentences.Count()} OldSentences.");
 		}
 
-		public async Task ProcessFromDatabase(IEnumerable<OldSentence> oldSentences, IGuild? guild = null, IChannel? channel = null)
+		private async Task ProcessFromDatabase(IEnumerable<OldSentence> oldSentences, IGuild? guild = null, IChannel? channel = null)
 		{
 			var groupedByMessage = oldSentences.GroupBy(s => s.MessageID);
 			IEnumerable<Sentence> sentences = [];
@@ -274,6 +279,14 @@ namespace Resentencizer2
 			await oldSentenceAccess.WriteSentenceRange(oldSentences);
 			Console.WriteLine($"\tUpdated version number for {oldSentences.Count()} OldSentences.");
 
+		}
+
+		private async Task ProcessUsers()
+		{
+			var users = await userAccess.ReadAllUsers();
+			var authors = users.Select(u => new Author(new AuthorOID(ServiceType.Discord, "discord.com", u.ID.ToString()), u.Username));
+			await authorAccess.WriteAuthorRange(authors);
+			Console.WriteLine($"Wrote {authors.Count()} authors to new database.");
 		}
 
 		public async Task StopAsync(CancellationToken cancellationToken)
