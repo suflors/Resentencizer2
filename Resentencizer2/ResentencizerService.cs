@@ -318,7 +318,7 @@ namespace Resentencizer2
 				new AuthorOID(ServiceType.Discord, instance, u.UserID.ToString()),
 				DiscordObjectOID.ForServer(instance, u.ServerID),
 				u.GlobalAllowed
-					? null
+					? DiscordObjectOID.ForInstance(instance)
 					: u.ServerAllowed
 						? DiscordObjectOID.ForServer(instance, u.ServerID)
 						: new SpecialObjectOID(AtelierTomato.Markov.Model.ObjectOID.Types.SpecialObjectOIDType.PermissionDenied)
