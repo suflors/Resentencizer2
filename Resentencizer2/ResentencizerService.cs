@@ -24,19 +24,21 @@ namespace Resentencizer2
 		private readonly SqliteUserAccess userAccess;
 		private readonly SqliteServerSettingAccess serverSettingAccess;
 		private readonly SqliteUserPermissionAccess userPermissionAccess;
+		private readonly SqliteUserSettingAccess userSettingAccess;
 		private readonly OldSentenceRenderer oldSentenceRenderer;
 		private readonly IWordStatisticAccess wordStatisticAccess;
 		private readonly ISentenceAccess sentenceAccess;
 		private readonly IAuthorAccess authorAccess;
 		private readonly ILocationSettingAccess locationSettingAccess;
 		private readonly IAuthorPermissionAccess authorPermissionAccess;
+		private readonly IAuthorRetortConfigAccess authorRetortConfigAccess;
 		private readonly ResentencizerOptions resentencizerOptions;
 		private readonly DiscordSentenceParser discordSentenceParser;
 		private readonly DiscordObjectOIDBuilder objectOIDBuilder;
 		private readonly DiscordSentenceBuilder sentenceBuilder;
 
 		private readonly Regex RemoveEscapement = new Regex(@"\\(.)", RegexOptions.Compiled);
-		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions, DiscordSentenceParser discordSentenceParser, DiscordObjectOIDBuilder objectOIDBuilder, DiscordSentenceBuilder sentenceBuilder, SqliteUserAccess userAccess, IAuthorAccess authorAccess, SqliteServerSettingAccess serverSettingAccess, ILocationSettingAccess locationSettingAccess, SqliteUserPermissionAccess userPermissionAccess, IAuthorPermissionAccess authorPermissionAccess)
+		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions, DiscordSentenceParser discordSentenceParser, DiscordObjectOIDBuilder objectOIDBuilder, DiscordSentenceBuilder sentenceBuilder, SqliteUserAccess userAccess, IAuthorAccess authorAccess, SqliteServerSettingAccess serverSettingAccess, ILocationSettingAccess locationSettingAccess, SqliteUserPermissionAccess userPermissionAccess, IAuthorPermissionAccess authorPermissionAccess, SqliteUserSettingAccess userSettingAccess, IAuthorRetortConfigAccess authorRetortConfigAccess)
 		{
 			this.configuration = configuration;
 			this.client = client;
@@ -54,6 +56,8 @@ namespace Resentencizer2
 			this.locationSettingAccess = locationSettingAccess;
 			this.userPermissionAccess = userPermissionAccess;
 			this.authorPermissionAccess = authorPermissionAccess;
+			this.userSettingAccess = userSettingAccess;
+			this.authorRetortConfigAccess = authorRetortConfigAccess;
 		}
 
 		public async Task StartAsync(CancellationToken cancellationToken)
@@ -71,6 +75,7 @@ namespace Resentencizer2
 			await ProcessServerSettings();
 			await ProcessUsers();
 			await ProcessUserPermissions();
+			await ProcessUserSettings();
 			_ = Looper(cancellationToken);
 		}
 
@@ -320,6 +325,25 @@ namespace Resentencizer2
 			));
 			await authorPermissionAccess.WriteAuthorPermissionRange(authorPermissions);
 			Console.WriteLine($"Wrote {authorPermissions.Count()} authorPermissions to new database.");
+		}
+
+		private async Task ProcessUserSettings()
+		{
+			var userSettings = await userSettingAccess.ReadAllUserSetting();
+			var authorRetortConfigs = userSettings.Select(u => new AuthorRetortConfig(
+				new AuthorOID(ServiceType.Discord, instance, u.UserID.ToString()),
+				DiscordObjectOID.ForServer(instance, u.ServerID),
+				u.RetortCommand is not null && u.RetortCommand.StartsWith("m", StringComparison.OrdinalIgnoreCase)
+					? DisplayOptionType.Mimic
+					: DisplayOptionType.Normal,
+				new SentenceFilter([],
+					u.RetortCommand is not null && u.RetortCommand.StartsWith("m", StringComparison.OrdinalIgnoreCase)
+						? [new AuthorOID(ServiceType.Discord, instance, u.UserID.ToString())] : []
+					)
+				)
+			);
+			await authorRetortConfigAccess.WriteAuthorRetortConfigRange(authorRetortConfigs);
+			Console.WriteLine($"Wrote {authorRetortConfigs.Count()} authorRetortConfigs to new database.");
 		}
 
 		public async Task StopAsync(CancellationToken cancellationToken)
