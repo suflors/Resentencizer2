@@ -17,28 +17,31 @@ namespace Resentencizer2
 {
 	public class ResentencizerService : IHostedService
 	{
+		private const string instance = "discord.com";
 		private readonly IConfiguration configuration;
 		private readonly DiscordRestClient client;
 		private readonly SqliteOldSentenceAccess oldSentenceAccess;
 		private readonly SqliteUserAccess userAccess;
+		private readonly SqliteServerSettingAccess serverSettingAccess;
+		private readonly SqliteUserPermissionAccess userPermissionAccess;
 		private readonly OldSentenceRenderer oldSentenceRenderer;
-		private readonly SentenceParser sentenceParser;
 		private readonly IWordStatisticAccess wordStatisticAccess;
 		private readonly ISentenceAccess sentenceAccess;
 		private readonly IAuthorAccess authorAccess;
+		private readonly ILocationSettingAccess locationSettingAccess;
+		private readonly IAuthorPermissionAccess authorPermissionAccess;
 		private readonly ResentencizerOptions resentencizerOptions;
 		private readonly DiscordSentenceParser discordSentenceParser;
 		private readonly DiscordObjectOIDBuilder objectOIDBuilder;
 		private readonly DiscordSentenceBuilder sentenceBuilder;
 
 		private readonly Regex RemoveEscapement = new Regex(@"\\(.)", RegexOptions.Compiled);
-		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions, DiscordSentenceParser discordSentenceParser, DiscordObjectOIDBuilder objectOIDBuilder, DiscordSentenceBuilder sentenceBuilder, SqliteUserAccess userAccess, IAuthorAccess authorAccess)
+		public ResentencizerService(IConfiguration configuration, DiscordRestClient client, SqliteOldSentenceAccess oldSentenceAccess, OldSentenceRenderer oldSentenceRenderer, SentenceParser sentenceParser, IWordStatisticAccess wordStatisticAccess, ISentenceAccess sentenceAccess, IOptions<ResentencizerOptions> resentencizerOptions, DiscordSentenceParser discordSentenceParser, DiscordObjectOIDBuilder objectOIDBuilder, DiscordSentenceBuilder sentenceBuilder, SqliteUserAccess userAccess, IAuthorAccess authorAccess, SqliteServerSettingAccess serverSettingAccess, ILocationSettingAccess locationSettingAccess, SqliteUserPermissionAccess userPermissionAccess, IAuthorPermissionAccess authorPermissionAccess)
 		{
 			this.configuration = configuration;
 			this.client = client;
 			this.oldSentenceAccess = oldSentenceAccess;
 			this.oldSentenceRenderer = oldSentenceRenderer;
-			this.sentenceParser = sentenceParser;
 			this.wordStatisticAccess = wordStatisticAccess;
 			this.sentenceAccess = sentenceAccess;
 			this.resentencizerOptions = resentencizerOptions.Value;
@@ -47,6 +50,10 @@ namespace Resentencizer2
 			this.sentenceBuilder = sentenceBuilder;
 			this.userAccess = userAccess;
 			this.authorAccess = authorAccess;
+			this.serverSettingAccess = serverSettingAccess;
+			this.locationSettingAccess = locationSettingAccess;
+			this.userPermissionAccess = userPermissionAccess;
+			this.authorPermissionAccess = authorPermissionAccess;
 		}
 
 		public async Task StartAsync(CancellationToken cancellationToken)
@@ -61,7 +68,9 @@ namespace Resentencizer2
 
 			Console.WriteLine("hello");
 
+			await ProcessServerSettings();
 			await ProcessUsers();
+			await ProcessUserPermissions();
 			_ = Looper(cancellationToken);
 		}
 
@@ -81,7 +90,7 @@ namespace Resentencizer2
 					finished = true;
 				}
 			}
-			Console.WriteLine($"Finished processing {(currentBatch)} batches of OldSentences.");
+			Console.WriteLine($"Finished processing {currentBatch} batches of OldSentences.");
 		}
 
 		private async Task Resentencizer2(IEnumerable<OldSentence> oldSentences, int currentBatch)
@@ -257,9 +266,9 @@ namespace Resentencizer2
 					messageOID = (await objectOIDBuilder.Build(guild, channel)).WithMessage((ulong)firstSentence.MessageID);
 				} else
 				{
-					messageOID = DiscordObjectOID.ForMessage("discord.com", (ulong)firstSentence.ServerID, 0, (ulong)firstSentence.ChannelID, 0, (ulong)firstSentence.MessageID);
+					messageOID = DiscordObjectOID.ForMessage(instance, (ulong)firstSentence.ServerID, 0, (ulong)firstSentence.ChannelID, 0, (ulong)firstSentence.MessageID);
 				}
-				AuthorOID author = new(ServiceType.Discord, "discord.com", firstSentence.UserID.ToString());
+				AuthorOID author = new(ServiceType.Discord, instance, firstSentence.UserID.ToString());
 				IEnumerable<Sentence> newSentences = reparsedTexts.Select((text, index) =>
 					new Sentence(
 						messageOID.WithSentence(index),
@@ -281,12 +290,36 @@ namespace Resentencizer2
 
 		}
 
+		private async Task ProcessServerSettings()
+		{
+			var serverSettings = await serverSettingAccess.ReadAllServerSettings();
+			var locationSettings = serverSettings.Select(s => new LocationSetting(DiscordObjectOID.ForServer(instance, s.ID), [], [], [], s.GlobalEnabled, null));
+			await locationSettingAccess.WriteLocationSettingRange(locationSettings);
+			Console.WriteLine($"Wrote {locationSettings.Count()} locationSettings to new database.");
+		}
+
 		private async Task ProcessUsers()
 		{
 			var users = await userAccess.ReadAllUsers();
-			var authors = users.Select(u => new Author(new AuthorOID(ServiceType.Discord, "discord.com", u.ID.ToString()), u.Username));
+			var authors = users.Select(u => new Author(new AuthorOID(ServiceType.Discord, instance, u.ID.ToString()), u.Username));
 			await authorAccess.WriteAuthorRange(authors);
 			Console.WriteLine($"Wrote {authors.Count()} authors to new database.");
+		}
+
+		private async Task ProcessUserPermissions()
+		{
+			var userPermissions = await userPermissionAccess.ReadAllUserPermissions();
+			var authorPermissions = userPermissions.Select(u => new AuthorPermission(
+				new AuthorOID(ServiceType.Discord, instance, u.UserID.ToString()),
+				DiscordObjectOID.ForServer(instance, u.ServerID),
+				u.GlobalAllowed
+					? null
+					: u.ServerAllowed
+						? DiscordObjectOID.ForServer(instance, u.ServerID)
+						: new SpecialObjectOID(AtelierTomato.Markov.Model.ObjectOID.Types.SpecialObjectOIDType.PermissionDenied)
+			));
+			await authorPermissionAccess.WriteAuthorPermissionRange(authorPermissions);
+			Console.WriteLine($"Wrote {authorPermissions.Count()} authorPermissions to new database.");
 		}
 
 		public async Task StopAsync(CancellationToken cancellationToken)
